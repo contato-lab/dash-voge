@@ -277,7 +277,7 @@
 <main class="main">
 
   <!-- AVISO DE ATUALIZAÇÃO -->
-  <p class="update-note">↻ Este painel atualiza automaticamente de 20 em 20 minutos<span id="updateNoteQuando"></span></p>
+  <p class="update-note">↻ Este painel atualiza automaticamente a cada 1 minuto<span id="updateNoteQuando"></span></p>
 
   <!-- ── FILTRO DE DATA ── -->
   <div class="filter-bar">
@@ -462,7 +462,7 @@
 const CONFIG = {
   campanha: 'VOGE Sales Speed',
 
-  /* Worker na Cloudflare: busca na Meta e no Google e guarda por 15 minutos. Fonte em worker-voge.js. */
+  /* Worker na Cloudflare: busca na Meta e no Google e guarda por 45 segundos. Fonte em worker-voge.js. */
   metaJsonUrl:   'https://voge-dados.performance-ef2.workers.dev/meta-data.json',
   googleJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/google-ads-data.json',
   criativosJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/meta-criativos.json',
@@ -954,8 +954,8 @@ async function initDashboard() {
   document.getElementById('footerDate').textContent = dtStr;
 }
 
-/* Recarrega os dados a cada 5 minutos */
-setInterval(async () => { await carregarDados(); renderInsight(); reaplicarFiltroAtivo(); }, 5 * 60 * 1000);
+/* Recarrega os dados a cada 1 minuto */
+setInterval(async () => { await carregarDados(); renderInsight(); reaplicarFiltroAtivo(); }, 60 * 1000);
 initDashboard();
 </script>
 </body>
