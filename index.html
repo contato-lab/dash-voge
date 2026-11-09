@@ -462,11 +462,10 @@
 const CONFIG = {
   campanha: 'VOGE Sales Speed',
 
-  /* Os robôs rodam no repositório do Festival, que já guarda as chaves das APIs.
-     Lê direto do repositório para não depender da publicação do site do Festival, que às vezes atrasa. */
-  metaJsonUrl:   'https://raw.githubusercontent.com/contato-lab/festival-interlagos-2026/main/voge/meta-data.json',
-  googleJsonUrl: 'https://raw.githubusercontent.com/contato-lab/festival-interlagos-2026/main/voge/google-ads-data.json',
-  criativosJsonUrl: 'https://raw.githubusercontent.com/contato-lab/festival-interlagos-2026/main/voge/meta-criativos.json',
+  /* Worker na Cloudflare: busca na Meta e no Google e guarda por 15 minutos. Fonte em worker-voge.js. */
+  metaJsonUrl:   'https://voge-dados.performance-ef2.workers.dev/meta-data.json',
+  googleJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/google-ads-data.json',
+  criativosJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/meta-criativos.json',
 
   meta:   { nome: 'Meta Ads',   cor: '#D5FE00', corFraca: 'rgba(213,254,0,0.75)' },
   google: { nome: 'Google Ads', cor: '#9B3DAB', corFraca: 'rgba(155,61,171,0.85)' },
