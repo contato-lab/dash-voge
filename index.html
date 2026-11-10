@@ -283,6 +283,7 @@
   <div class="filter-bar">
     <span class="filter-label-main">Período</span>
     <div class="filter-shortcuts">
+      <button class="btn-filter" id="btn-hoje" onclick="setPreset('hoje')">Hoje</button>
       <button class="btn-filter" id="btn-7d"   onclick="setPreset('7d')">7 Dias</button>
       <button class="btn-filter" id="btn-14d"  onclick="setPreset('14d')">14 Dias</button>
       <button class="btn-filter" id="btn-30d"  onclick="setPreset('30d')">30 Dias</button>
@@ -878,10 +879,13 @@ function applyFilter(fromDate, toDate, activeBtn) {
   document.getElementById('dateFrom').value = fromIso;
   document.getElementById('dateTo').value = toIso;
   const anoFrom = fromDate.getFullYear(), anoTo = toDate.getFullYear();
-  document.getElementById('periodBadge').textContent = anoFrom === anoTo
-    ? `${fmtShort(fromDate)} – ${fmtShort(toDate)} ${anoTo}`
-    : `${fmtShort(fromDate)} ${anoFrom} – ${fmtShort(toDate)} ${anoTo}`;
-  document.getElementById('tl-sub').textContent = `${fromDate.toLocaleDateString('pt-BR')} a ${toDate.toLocaleDateString('pt-BR')} · Fonte: Meta Ads e Google Ads`;
+  const umDia = fromIso === toIso;
+  document.getElementById('periodBadge').textContent = umDia
+    ? `${fmtShort(toDate)} ${anoTo}`
+    : anoFrom === anoTo
+      ? `${fmtShort(fromDate)} – ${fmtShort(toDate)} ${anoTo}`
+      : `${fmtShort(fromDate)} ${anoFrom} – ${fmtShort(toDate)} ${anoTo}`;
+  document.getElementById('tl-sub').textContent = `${umDia ? toDate.toLocaleDateString('pt-BR') : `${fromDate.toLocaleDateString('pt-BR')} a ${toDate.toLocaleDateString('pt-BR')}`} · Fonte: Meta Ads e Google Ads`;
 
   const { vf, mf, gf } = filterData(fromIso, toIso);
   renderKPIs(vf, mf, gf);
@@ -897,6 +901,7 @@ function setPreset(id) {
   const today = new Date(); today.setHours(0,0,0,0);
   const daysAgo = n => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
   let from, to = today;
+  if (id === 'hoje') from = today;
   if (id === '7d')  from = daysAgo(6);
   if (id === '14d') from = daysAgo(13);
   if (id === '30d') from = daysAgo(29);
@@ -914,7 +919,7 @@ function applyCustomFilter() {
 
 function reaplicarFiltroAtivo() {
   const activeBtn = document.querySelector('.btn-filter.active');
-  if (activeBtn && activeBtn.id === 'btn-tudo') { setPreset('tudo'); return; }
+  if (activeBtn) { setPreset(activeBtn.id.replace('btn-', '')); return; }   // recalcula as datas, para "Hoje" virar o dia sozinho
   const from = parseISO(document.getElementById('dateFrom').value);
   const to   = parseISO(document.getElementById('dateTo').value);
   if (!isNaN(from) && !isNaN(to)) applyFilter(from, to, activeBtn ? activeBtn.id : null);
