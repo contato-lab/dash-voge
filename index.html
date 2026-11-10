@@ -279,6 +279,12 @@
   <!-- AVISO DE ATUALIZAÇÃO -->
   <p class="update-note">↻ Este painel atualiza automaticamente a cada 1 minuto<span id="updateNoteQuando"></span></p>
 
+  <!-- ALERTA DE VERBA (só aparece quando a verba do mês está para acabar) -->
+  <div class="insight-box warn" id="verbaAlerta" style="display:none;">
+    <span class="insight-icon">⚠</span>
+    <p class="insight-text" id="verbaAlertaTexto"></p>
+  </div>
+
   <!-- ── FILTRO DE DATA ── -->
   <div class="filter-bar">
     <span class="filter-label-main">Período</span>
@@ -471,6 +477,11 @@ const CONFIG = {
 
   meta:   { nome: 'Meta Ads',   cor: '#D5FE00', corFraca: 'rgba(213,254,0,0.75)' },
   google: { nome: 'Google Ads', cor: '#9B3DAB', corFraca: 'rgba(155,61,171,0.85)' },
+
+  /* Verba mensal aprovada em 03/11/2026, em reais. O alerta aparece quando, no ritmo dos
+     últimos 7 dias, o que sobra do mês acaba em até "alertaDias" dias e antes do fim do mês. */
+  verbaMensal: { meta: 3000, google: 2000 },
+  alertaDias: 5,
 
   /* Marcos que aparecem como linha vertical no gráfico de leads. Data sempre com ano. */
   marcos: [
@@ -840,7 +851,7 @@ function renderInsight() {
   box.classList.remove('warn');
   if (!fonteMetaOk && !fonteGoogleOk) {
     box.classList.add('warn');
-    el.innerHTML = 'Os dados de Meta Ads e Google Ads ainda não chegaram. O painel tenta de novo a cada 5 minutos.';
+    el.innerHTML = 'Os dados de Meta Ads e Google Ads ainda não chegaram. O painel tenta de novo a cada 1 minuto.';
     return;
   }
   const faltas = [];
@@ -863,6 +874,58 @@ function renderInsight() {
     (diasPrimeiro > 7 ? `Ritmo nos 7 dias até o último lead: <strong>${(ult7 / 7).toFixed(1).replace('.', ',')} leads por dia</strong> · ` : '') + `Média desde o 1º lead (${diasPrimeiro} dias): <strong>${((totMeta + totGoogle) / diasPrimeiro).toFixed(1).replace('.', ',')} leads por dia</strong>`,
     ...faltas,
   ].join(' &nbsp;·&nbsp; ');
+}
+
+/* ═══════════════════════════════════════
+   ALERTA DE VERBA DO MÊS
+═══════════════════════════════════════ */
+/* Quanto sobra da verba do mês e em quantos dias acaba no ritmo dos últimos 7 dias completos.
+   Hoje fica fora do ritmo porque o dia ainda está pela metade. */
+function previsaoVerba(dias, verba) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const hojeIso = isoOf(hoje), mesIso = hojeIso.slice(0, 7);
+  const gastoMes = dias.filter(d => d.iso.slice(0, 7) === mesIso).reduce((s, d) => s + (d.gasto || 0), 0);
+  const restante = verba - gastoMes;
+
+  const primeiro = dias.find(d => d.gasto > 0);
+  if (!primeiro) return null;
+  const seteAtras = new Date(hoje); seteAtras.setDate(seteAtras.getDate() - 7);
+  const inicioIso = primeiro.iso > isoOf(seteAtras) ? primeiro.iso : isoOf(seteAtras);
+  const diasJanela = Math.round((hoje - parseISO(inicioIso)) / 864e5);
+  if (diasJanela < 1) return null;   // campanha começou hoje: ainda não há ritmo
+  const ritmo = dias.filter(d => d.iso >= inicioIso && d.iso < hojeIso).reduce((s, d) => s + (d.gasto || 0), 0) / diasJanela;
+  if (ritmo <= 0) return null;
+
+  const ultimoDia = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const diasAteFimDoMes = ultimoDia - hoje.getDate() + 1;   // contando hoje
+  const diasDeVerba = restante / ritmo;
+  const fim = new Date(hoje); fim.setDate(fim.getDate() + Math.max(0, Math.ceil(diasDeVerba) - 1));
+  return { gastoMes, restante, ritmo, diasDeVerba, diasAteFimDoMes, fim, hoje };
+}
+
+function renderAlertaVerba() {
+  const linhas = [];
+  const fontes = [
+    { nome: CONFIG.meta.nome,   ok: fonteMetaOk,   dias: metaDiario,   verba: CONFIG.verbaMensal.meta },
+    { nome: CONFIG.google.nome, ok: fonteGoogleOk, dias: googleDiario, verba: CONFIG.verbaMensal.google },
+  ];
+  for (const f of fontes) {
+    if (!f.ok || !f.verba) continue;
+    const p = previsaoVerba(f.dias, f.verba);
+    if (!p) continue;
+    const mes = p.hoje.toLocaleDateString('pt-BR', { month: 'long' });
+    if (p.restante <= 0) {
+      linhas.push(`<strong>${f.nome}:</strong> a verba de ${mes} acabou. Já foram investidos ${fmtBRL2(p.gastoMes)} de ${fmtBRL2(f.verba)}.`);
+      continue;
+    }
+    if (p.diasDeVerba > CONFIG.alertaDias || p.diasDeVerba >= p.diasAteFimDoMes) continue;
+    const faltam = Math.round((p.fim - p.hoje) / 864e5);
+    const quando = faltam === 0 ? 'hoje' : faltam === 1 ? 'amanhã' : `em ${faltam} dias`;
+    const data = p.fim.toLocaleDateString('pt-BR') + ' (' + p.fim.toLocaleDateString('pt-BR', { weekday: 'long' }) + ')';
+    linhas.push(`<strong>${f.nome}:</strong> no ritmo atual de ${fmtBRL2(p.ritmo)} por dia, a verba de ${mes} acaba ${quando}, por volta de ${data}. Restam ${fmtBRL2(p.restante)} de ${fmtBRL2(f.verba)}.`);
+  }
+  document.getElementById('verbaAlerta').style.display = linhas.length ? 'flex' : 'none';
+  document.getElementById('verbaAlertaTexto').innerHTML = linhas.join('<br>');
 }
 
 /* ═══════════════════════════════════════
@@ -955,6 +1018,7 @@ async function initDashboard() {
   await carregarDados();
   initCharts();
   renderInsight();
+  renderAlertaVerba();
   setPreset('tudo');
   const dtStr = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   document.getElementById('dataGeracao').textContent = 'Gerado em ' + dtStr;
@@ -962,7 +1026,7 @@ async function initDashboard() {
 }
 
 /* Recarrega os dados a cada 1 minuto */
-setInterval(async () => { await carregarDados(); renderInsight(); reaplicarFiltroAtivo(); }, 60 * 1000);
+setInterval(async () => { await carregarDados(); renderInsight(); renderAlertaVerba(); reaplicarFiltroAtivo(); }, 60 * 1000);
 initDashboard();
 </script>
 </body>
