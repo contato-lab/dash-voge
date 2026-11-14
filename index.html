@@ -292,7 +292,7 @@
       <button class="btn-filter" id="btn-hoje" onclick="setPreset('hoje')">Hoje</button>
       <button class="btn-filter" id="btn-ontem" onclick="setPreset('ontem')">Ontem</button>
       <button class="btn-filter" id="btn-7d"   onclick="setPreset('7d')">7 Dias</button>
-      <button class="btn-filter" id="btn-14d"  onclick="setPreset('14d')">14 Dias</button>
+      <button class="btn-filter" id="btn-15d"  onclick="setPreset('15d')">15 Dias</button>
       <button class="btn-filter" id="btn-30d"  onclick="setPreset('30d')">30 Dias</button>
       <button class="btn-filter" id="btn-mes"  onclick="setPreset('mes')">Este Mês</button>
       <button class="btn-filter active" id="btn-tudo" onclick="setPreset('tudo')">Todo o Período</button>
@@ -968,7 +968,7 @@ function setPreset(id) {
   if (id === 'hoje') from = today;
   if (id === 'ontem') { from = daysAgo(1); to = from; }
   if (id === '7d')  from = daysAgo(6);
-  if (id === '14d') from = daysAgo(13);
+  if (id === '15d') from = daysAgo(14);
   if (id === '30d') from = daysAgo(29);
   if (id === 'mes') from = new Date(today.getFullYear(), today.getMonth(), 1);
   if (id === 'tudo') from = leadsDiarios.length ? parseISO(leadsDiarios[0].iso) : daysAgo(29);
