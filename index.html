@@ -141,6 +141,12 @@
     .creative-stats p { font-size: 0.65rem; color: #888; }
     .creative-stats strong { display: block; font-size: 0.82rem; color: var(--text); font-weight: 600; }
     .creative-empty { color: #777; font-size: 0.85rem; padding: 20px 0; }
+    .gcreative-thumb { aspect-ratio: 1 / 1; background: #151515; display: flex; align-items: center; justify-content: center; }
+    .gcreative-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+    .gcreative-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .gcreative-tag { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #222; color: #BBB; }
+    .gcreative-tag.on { background: rgba(213,254,0,0.14); color: var(--lime); }
+    .gcreative-camp { font-size: 0.68rem; color: #888; line-height: 1.35; word-break: break-word; }
     .meta-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 32px; }
     .meta-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; text-align: center; transition: border-color 0.2s; }
     .meta-card:hover { border-color: var(--lime-border); }
@@ -435,6 +441,13 @@
   </div>
   <div class="creative-grid" id="creativeGrid"></div>
 
+  <!-- CRIATIVOS GOOGLE -->
+  <div class="section-header">
+    <p class="section-title">Criativos: Google Ads</p>
+    <p class="section-desc" id="gcreative-desc">Imagens e vídeos cadastrados nas campanhas do Google, as ativas primeiro</p>
+  </div>
+  <div class="creative-grid" id="gCreativeGrid"></div>
+
   <!-- TABELA -->
   <div class="section-header">
     <p class="section-title">Detalhamento Diário</p>
@@ -474,6 +487,7 @@ const CONFIG = {
   metaJsonUrl:   'https://voge-dados.performance-ef2.workers.dev/meta-data.json',
   googleJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/google-ads-data.json',
   criativosJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/meta-criativos.json',
+  googleCriativosJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/google-criativos.json',
 
   meta:   { nome: 'Meta Ads',   cor: '#D5FE00', corFraca: 'rgba(213,254,0,0.75)' },
   google: { nome: 'Google Ads', cor: '#9B3DAB', corFraca: 'rgba(155,61,171,0.85)' },
@@ -494,6 +508,7 @@ const _qs = new URLSearchParams(location.search);
 const META_JSON_URL   = _qs.get('meta') || CONFIG.metaJsonUrl;
 const GOOGLE_JSON_URL = _qs.get('google') || CONFIG.googleJsonUrl;
 const CRIATIVOS_JSON_URL = _qs.get('criativos') || CONFIG.criativosJsonUrl;
+const G_CRIATIVOS_JSON_URL = CONFIG.googleCriativosJsonUrl;
 
 /* ═══════════════════════════════════════
    ESTADO
@@ -502,6 +517,7 @@ let leadsDiarios = [];   // [{ iso, label, meta, google, total, gastoMeta, gasto
 let metaDiario   = [];   // [{ iso, label, gasto, leads, leadsForm, contatos, viewContent, impressoes, alcance, cliques, lpViews }]
 let googleDiario = [];   // [{ iso, label, gasto, impressoes, cliques, conversoes, ctr, cpc, cpa }]
 let criativos    = [];   // [{ id, nome, status, thumb, dias:[{ iso, gasto, impressoes, cliques, leads }] }]
+let gCriativos   = { itens: [], comNumeros: false };   // imagens e vídeos das campanhas do Google
 let fonteMetaOk   = false;
 let fonteGoogleOk = false;
 let metaUpdated   = '';
@@ -803,6 +819,43 @@ function renderCriativos(fromIso, toIso) {
   </div>`).join('');
 }
 
+/* Criativos do Google: a imagem aparece mesmo sem número, porque o Google entrega pouco dado por imagem.
+   Quando houver número no período, o card mostra; quando não, a seção explica onde estão os resultados. */
+function renderGoogleCriativos(fromIso, toIso) {
+  const grid = document.getElementById('gCreativeGrid');
+  const itens = gCriativos.itens || [];
+  if (!itens.length) { grid.innerHTML = '<p class="creative-empty">Nenhuma imagem cadastrada nas campanhas do Google ainda.</p>'; return; }
+  const comDado = gCriativos.comNumeros;
+  document.getElementById('gcreative-desc').textContent = comDado
+    ? 'Imagens e vídeos das campanhas do Google, as ativas primeiro. Números do período selecionado.'
+    : 'Imagens e vídeos das campanhas do Google, as ativas primeiro. O Google ainda não informou resultado por imagem: os números da campanha estão em Métricas de Mídia: Google Ads.';
+  grid.innerHTML = itens.map(it => {
+    const dias = (it.dias || []).filter(d => d.iso >= fromIso && d.iso <= toIso);
+    const t = dias.reduce((a, d) => ({ gasto: a.gasto + (d.gasto || 0), imp: a.imp + (d.impressoes || 0), clk: a.clk + (d.cliques || 0), conv: a.conv + (d.conversoes || 0) }), { gasto: 0, imp: 0, clk: 0, conv: 0 });
+    const conv = Math.round(t.conv);
+    const medida = it.largura && it.altura ? ` · ${it.largura}×${it.altura}` : '';
+    const gerada = /^imagem gerada/i.test(it.nome || '');
+    const img = `<img src="${escHtml(it.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+    return `<div class="creative-card">
+    <div class="gcreative-thumb">${it.video ? `<a href="${escHtml(it.video)}" target="_blank" rel="noopener">${img}</a>` : img}</div>
+    <div class="creative-body">
+      <div class="gcreative-tags">
+        <span class="gcreative-tag ${it.ativo ? 'on' : ''}">${it.ativo ? 'Ativa' : 'Pausada'}</span>
+        <span class="gcreative-tag">${escHtml(it.formato)}${medida}</span>
+        ${gerada ? '<span class="gcreative-tag">Criada pelo Google</span>' : ''}
+      </div>
+      <p class="gcreative-camp">${escHtml((it.campanhas || []).join(' · '))}</p>
+      ${comDado ? `<div class="creative-stats">
+        <p>Conversões<strong>${fmtN(conv)}</strong></p>
+        <p>Investimento<strong>${fmtBRL2(t.gasto)}</strong></p>
+        <p>Impressões<strong>${fmtN(t.imp)}</strong></p>
+        <p>Cliques<strong>${fmtN(t.clk)}</strong></p>
+      </div>` : ''}
+    </div>
+  </div>`;
+  }).join('');
+}
+
 function renderMetaCards(mf) {
   const imp = mf.reduce((s, d) => s + (d.impressoes || 0), 0);
   const alc = mf.reduce((s, d) => s + (d.alcance || 0), 0);
@@ -959,6 +1012,7 @@ function applyFilter(fromDate, toDate, activeBtn) {
   renderGoogleCards(gf);
   renderFunnel(mf);
   renderCriativos(fromIso, toIso);
+  renderGoogleCriativos(fromIso, toIso);
 }
 
 function setPreset(id) {
@@ -1007,6 +1061,9 @@ async function carregarDados() {
     baixar(CRIATIVOS_JSON_URL)
       .then(json => { criativos = json.ads || []; })
       .catch(e => { console.warn('Criativos: não carregou:', e.message); }),
+    baixar(G_CRIATIVOS_JSON_URL)
+      .then(json => { gCriativos = { itens: json.itens || [], comNumeros: !!json.comNumeros }; })
+      .catch(e => { console.warn('Criativos Google: não carregou:', e.message); }),
   ]);
   leadsDiarios = montarLeads();
   document.getElementById('updateNoteQuando').textContent = metaUpdated ? ` · última atualização: ${metaUpdated}` : '';
