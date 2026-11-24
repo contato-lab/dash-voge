@@ -73,20 +73,15 @@
     }
     .filter-label-main { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
     .filter-shortcuts { display: flex; gap: 6px; flex-wrap: wrap; }
-    .btn-filter {
+    .btn-filter, .btn-camp {
       background: transparent; border: 1px solid var(--border);
       border-radius: 20px; color: #AAAAAA;
       font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
       font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 5px 14px; cursor: pointer; transition: all 0.18s;
     }
-    .btn-filter:hover { border-color: var(--lime-border); color: var(--lime); }
-    .camp-select {
-      background: #1A1A1A; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      color: #DDD; font-family: 'Inter', sans-serif; font-size: 0.82rem; padding: 7px 12px;
-      min-width: 280px; max-width: 100%; cursor: pointer; color-scheme: dark;
-    }
-    .camp-select:focus { outline: none; border-color: var(--lime-border); }
+    .btn-filter:hover, .btn-camp:hover { border-color: var(--lime-border); color: var(--lime); }
+    .btn-camp.active { background: var(--lime-dim); border-color: var(--lime-border); color: var(--lime); }
     .btn-filter.active { background: var(--lime-dim); border-color: var(--lime-border); color: var(--lime); }
     .filter-sep { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
     .filter-custom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -294,7 +289,7 @@
   <!-- ── FILTRO DE CAMPANHA ── -->
   <div class="filter-bar">
     <span class="filter-label-main">Campanha</span>
-    <select class="camp-select" id="campSelect" onchange="escolherCampanha(this.value)" aria-label="Campanha"></select>
+    <div class="filter-shortcuts" id="campBotoes"></div>
   </div>
 
   <!-- ── FILTRO DE DATA ── -->
@@ -489,9 +484,9 @@
 const CONFIG = {
   campanha: 'VOGE Sales Speed',
 
-  /* Lista de campanhas do filtro. Em cima ficam as campanhas de marketing, que juntam Meta e Google
-     pela regra do nome (a que não bate com nenhuma regra fica em Sales Speed); grupo sem dado não aparece.
-     Embaixo entra sozinha cada campanha de anúncio que a Meta ou o Google devolverem, sem cadastrar nada. */
+  /* Campanhas de marketing do filtro. A campanha de anúncio entra no grupo pela regra do nome
+     (Meta e Google); a que não bate com nenhuma regra fica em Sales Speed.
+     Grupo sem nenhum dado não mostra botão (o Natal aparece sozinho quando a campanha existir). */
   gruposCampanha: [
     { id: 'black', nome: 'Black VOGE',       regra: /black/i },
     { id: 'natal', nome: 'Natal VOGE',       regra: /natal/i },
@@ -533,8 +528,7 @@ let fonteGoogleOk = false;
 let metaUpdated   = '';
 let googleUpdated = '';
 let metaJson = null, googleJson = null;   // resposta bruta do robô, para refazer os números quando troca a campanha
-let campanhaAtiva = new URLSearchParams(location.search).get('campanha') || 'todas';   // 'todas', id do grupo ou 'c:<plataforma>:<id da campanha>'
-let campanhaNomeAtiva = '';   // nome da campanha de anúncio escolhida, para filtrar criativos
+let campanhaAtiva = new URLSearchParams(location.search).get('campanha') || 'todas';
 
 /* ═══════════════════════════════════════
    HELPERS
@@ -950,14 +944,13 @@ function grupoDe(nome) {
   const g = CONFIG.gruposCampanha.find(x => x.regra && x.regra.test(nome || ''));
   return g ? g.id : 'sales';
 }
-const naCampanha = nome => campanhaAtiva === 'todas'
-  || (campanhaAtiva.startsWith('c:') ? nome === campanhaNomeAtiva : grupoDe(nome) === campanhaAtiva);
+const nomeGrupo = id => id === 'todas' ? 'Todas as campanhas' : (CONFIG.gruposCampanha.find(g => g.id === id) || {}).nome || id;
+const naCampanha = nome => campanhaAtiva === 'todas' || grupoDe(nome) === campanhaAtiva;
 
 /* Soma os dias das campanhas do grupo escolhido, no mesmo formato que o robô entrega para a conta inteira */
-function somarDias(campanhas, campos, plataforma) {
+function somarDias(campanhas, campos) {
   const dias = {};
-  const escolhida = c => campanhaAtiva.startsWith('c:') ? campanhaAtiva === `c:${plataforma}:${c.id}` : naCampanha(c.nome);
-  campanhas.filter(escolhida).forEach(c => (c.dias || []).forEach(d => {
+  campanhas.filter(c => naCampanha(c.nome)).forEach(c => (c.dias || []).forEach(d => {
     const x = dias[d.dataISO] || (dias[d.dataISO] = Object.fromEntries([['dataISO', d.dataISO], ['data', d.data], ...campos.map(k => [k, 0])]));
     campos.forEach(k => { x[k] += Number(d[k] || 0); });
   }));
@@ -968,12 +961,12 @@ function aplicarCampanha() {
   if (metaJson) {
     metaDiario = campanhaAtiva === 'todas'
       ? montarDias(metaJson)
-      : montarDias({ data: somarDias(metaJson.campanhas || [], ['leads', 'leadsForm', 'contatos', 'gasto', 'impressoes', 'alcance', 'cliques', 'lpViews', 'viewContent'], 'meta') });
+      : montarDias({ data: somarDias(metaJson.campanhas || [], ['leads', 'leadsForm', 'contatos', 'gasto', 'impressoes', 'alcance', 'cliques', 'lpViews', 'viewContent']) });
   }
   if (googleJson) {
     googleDiario = campanhaAtiva === 'todas'
       ? montarDias(googleJson)
-      : montarDias({ data: somarDias(googleJson.campanhas || [], ['gasto', 'impressoes', 'cliques', 'conversoes'], 'google').map(d => ({
+      : montarDias({ data: somarDias(googleJson.campanhas || [], ['gasto', 'impressoes', 'cliques', 'conversoes']).map(d => ({
           ...d, ctr: d.impressoes ? d.cliques / d.impressoes * 100 : 0,
           cpc: d.cliques ? d.gasto / d.cliques : null, cpa: d.conversoes ? d.gasto / d.conversoes : null,
         })) });
@@ -981,28 +974,14 @@ function aplicarCampanha() {
   leadsDiarios = montarLeads();
 }
 
-/* Monta a lista a cada carga: campanha nova na Meta ou no Google aparece sozinha, a mais recente primeiro */
-function renderListaCampanhas() {
-  const ultimoDia = c => (c.dias || []).reduce((m, d) => d.dataISO > m ? d.dataISO : m, '');
-  const anuncios = [
-    ...((metaJson || {}).campanhas || []).map(c => ({ valor: `c:meta:${c.id}`, nome: c.nome, rotulo: `Meta · ${c.nome}`, fim: ultimoDia(c) })),
-    ...((googleJson || {}).campanhas || []).map(c => ({ valor: `c:google:${c.id}`, nome: c.nome, rotulo: `Google · ${c.nome}`, fim: ultimoDia(c) })),
-  ].sort((x, y) => y.fim.localeCompare(x.fim) || x.rotulo.localeCompare(y.rotulo));
-  const comDado = new Set(anuncios.map(c => grupoDe(c.nome)));
-  const grupos = [{ id: 'todas', nome: 'Todas as campanhas' }, ...CONFIG.gruposCampanha.filter(g => comDado.has(g.id))];
-
-  const validos = new Set([...grupos.map(g => g.id), ...anuncios.map(c => c.valor)]);
-  if (!validos.has(campanhaAtiva)) campanhaAtiva = 'todas';
-  campanhaNomeAtiva = (anuncios.find(c => c.valor === campanhaAtiva) || {}).nome || '';
-
-  const opt = (valor, texto) => `<option value="${escHtml(valor)}"${valor === campanhaAtiva ? ' selected' : ''}>${escHtml(texto)}</option>`;
-  document.getElementById('campSelect').innerHTML =
-    `<optgroup label="Campanhas">${grupos.map(g => opt(g.id, g.nome)).join('')}</optgroup>` +
-    (anuncios.length ? `<optgroup label="Campanhas de anúncio (Meta e Google)">${anuncios.map(c => opt(c.valor, c.rotulo)).join('')}</optgroup>` : '');
-
-  const escolhida = anuncios.find(c => c.valor === campanhaAtiva);
-  const titulo = escolhida ? escolhida.rotulo : (grupos.find(g => g.id === campanhaAtiva) || grupos[0]).nome;
-  document.getElementById('subtitleFull').textContent = escolhida ? titulo : `${titulo} · Meta Ads · Google Ads`;
+function renderBotoesCampanha() {
+  const nomes = [...((metaJson || {}).campanhas || []), ...((googleJson || {}).campanhas || [])].map(c => c.nome);
+  const comDado = new Set(nomes.map(grupoDe));
+  const grupos = [{ id: 'todas', nome: 'Todas' }, ...CONFIG.gruposCampanha.filter(g => comDado.has(g.id)).sort((a, b) => a.id === 'sales' ? -1 : b.id === 'sales' ? 1 : 0)];
+  if (!grupos.some(g => g.id === campanhaAtiva)) campanhaAtiva = 'todas';
+  document.getElementById('campBotoes').innerHTML = grupos.map(g =>
+    `<button class="btn-camp${g.id === campanhaAtiva ? ' active' : ''}" onclick="escolherCampanha('${g.id}')">${escHtml(g.nome)}</button>`).join('');
+  document.getElementById('subtitleFull').textContent = `${nomeGrupo(campanhaAtiva)} · Meta Ads · Google Ads`;
 }
 
 function escolherCampanha(id) {
@@ -1010,8 +989,8 @@ function escolherCampanha(id) {
   const u = new URL(location.href);   // o link copiado já abre na campanha escolhida
   if (id === 'todas') u.searchParams.delete('campanha'); else u.searchParams.set('campanha', id);
   history.replaceState(null, '', u);
-  renderListaCampanhas();
   aplicarCampanha();
+  renderBotoesCampanha();
   renderInsight();
   reaplicarFiltroAtivo();
 }
@@ -1100,8 +1079,8 @@ async function carregarDados() {
       .then(json => { gCriativos = { itens: json.itens || [], comNumeros: !!json.comNumeros }; })
       .catch(e => { console.warn('Criativos Google: não carregou:', e.message); }),
   ]);
-  renderListaCampanhas();
   aplicarCampanha();
+  renderBotoesCampanha();
   document.getElementById('updateNoteQuando').textContent = metaUpdated ? ` · última atualização: ${metaUpdated}` : '';
   document.getElementById('loadingBadge').style.display = 'none';
 }
