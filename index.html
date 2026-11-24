@@ -73,14 +73,15 @@
     }
     .filter-label-main { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
     .filter-shortcuts { display: flex; gap: 6px; flex-wrap: wrap; }
-    .btn-filter {
+    .btn-filter, .btn-camp {
       background: transparent; border: 1px solid var(--border);
       border-radius: 20px; color: #AAAAAA;
       font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
       font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 5px 14px; cursor: pointer; transition: all 0.18s;
     }
-    .btn-filter:hover { border-color: var(--lime-border); color: var(--lime); }
+    .btn-filter:hover, .btn-camp:hover { border-color: var(--lime-border); color: var(--lime); }
+    .btn-camp.active { background: var(--lime-dim); border-color: var(--lime-border); color: var(--lime); }
     .btn-filter.active { background: var(--lime-dim); border-color: var(--lime-border); color: var(--lime); }
     .filter-sep { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
     .filter-custom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -285,6 +286,12 @@
   <!-- AVISO DE ATUALIZAÇÃO -->
   <p class="update-note">↻ Este painel atualiza automaticamente a cada 1 minuto<span id="updateNoteQuando"></span></p>
 
+  <!-- ── FILTRO DE CAMPANHA ── -->
+  <div class="filter-bar">
+    <span class="filter-label-main">Campanha</span>
+    <div class="filter-shortcuts" id="campBotoes"></div>
+  </div>
+
   <!-- ── FILTRO DE DATA ── -->
   <div class="filter-bar">
     <span class="filter-label-main">Período</span>
@@ -477,6 +484,15 @@
 const CONFIG = {
   campanha: 'VOGE Sales Speed',
 
+  /* Campanhas de marketing do filtro. A campanha de anúncio entra no grupo pela regra do nome
+     (Meta e Google); a que não bate com nenhuma regra fica em Sales Speed.
+     Grupo sem nenhum dado não mostra botão (o Natal aparece sozinho quando a campanha existir). */
+  gruposCampanha: [
+    { id: 'black', nome: 'Black VOGE',       regra: /black/i },
+    { id: 'natal', nome: 'Natal VOGE',       regra: /natal/i },
+    { id: 'sales', nome: 'VOGE Sales Speed', regra: null },
+  ],
+
   /* Worker na Cloudflare: busca na Meta e no Google e guarda por 45 segundos. Fonte em worker-voge.js. */
   metaJsonUrl:   'https://voge-dados.performance-ef2.workers.dev/meta-data.json',
   googleJsonUrl: 'https://voge-dados.performance-ef2.workers.dev/google-ads-data.json',
@@ -511,6 +527,8 @@ let fonteMetaOk   = false;
 let fonteGoogleOk = false;
 let metaUpdated   = '';
 let googleUpdated = '';
+let metaJson = null, googleJson = null;   // resposta bruta do robô, para refazer os números quando troca a campanha
+let campanhaAtiva = new URLSearchParams(location.search).get('campanha') || 'todas';
 
 /* ═══════════════════════════════════════
    HELPERS
@@ -784,6 +802,7 @@ const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<
 function renderCriativos(fromIso, toIso) {
   const porNome = {};
   criativos.forEach(ad => {
+    if (!naCampanha(ad.campanha)) return;
     const dias = (ad.dias || []).filter(d => d.iso >= fromIso && d.iso <= toIso);
     if (!dias.some(d => d.impressoes > 0)) return;
     const c = porNome[ad.nome] || (porNome[ad.nome] = { nome: ad.nome, thumb: '', leads: 0, gasto: 0, impressoes: 0, cliques: 0 });
@@ -812,8 +831,8 @@ function renderCriativos(fromIso, toIso) {
    Quando houver número no período, o card mostra; quando não, a seção explica onde estão os resultados. */
 function renderGoogleCriativos(fromIso, toIso) {
   const grid = document.getElementById('gCreativeGrid');
-  const itens = gCriativos.itens || [];
-  if (!itens.length) { grid.innerHTML = '<p class="creative-empty">Nenhuma imagem cadastrada nas campanhas do Google ainda.</p>'; return; }
+  const itens = (gCriativos.itens || []).filter(it => (it.campanhas || []).some(naCampanha));
+  if (!itens.length) { grid.innerHTML = '<p class="creative-empty">Nenhuma imagem do Google nesta campanha.</p>'; return; }
   const comDado = gCriativos.comNumeros;
   document.getElementById('gcreative-desc').textContent = comDado
     ? 'Imagens e vídeos das campanhas do Google, as ativas primeiro. Números do período selecionado.'
@@ -919,6 +938,64 @@ function renderInsight() {
 }
 
 /* ═══════════════════════════════════════
+   FILTRO DE CAMPANHA
+═══════════════════════════════════════ */
+function grupoDe(nome) {
+  const g = CONFIG.gruposCampanha.find(x => x.regra && x.regra.test(nome || ''));
+  return g ? g.id : 'sales';
+}
+const nomeGrupo = id => id === 'todas' ? 'Todas as campanhas' : (CONFIG.gruposCampanha.find(g => g.id === id) || {}).nome || id;
+const naCampanha = nome => campanhaAtiva === 'todas' || grupoDe(nome) === campanhaAtiva;
+
+/* Soma os dias das campanhas do grupo escolhido, no mesmo formato que o robô entrega para a conta inteira */
+function somarDias(campanhas, campos) {
+  const dias = {};
+  campanhas.filter(c => naCampanha(c.nome)).forEach(c => (c.dias || []).forEach(d => {
+    const x = dias[d.dataISO] || (dias[d.dataISO] = Object.fromEntries([['dataISO', d.dataISO], ['data', d.data], ...campos.map(k => [k, 0])]));
+    campos.forEach(k => { x[k] += Number(d[k] || 0); });
+  }));
+  return Object.values(dias);
+}
+
+function aplicarCampanha() {
+  if (metaJson) {
+    metaDiario = campanhaAtiva === 'todas'
+      ? montarDias(metaJson)
+      : montarDias({ data: somarDias(metaJson.campanhas || [], ['leads', 'leadsForm', 'contatos', 'gasto', 'impressoes', 'alcance', 'cliques', 'lpViews', 'viewContent']) });
+  }
+  if (googleJson) {
+    googleDiario = campanhaAtiva === 'todas'
+      ? montarDias(googleJson)
+      : montarDias({ data: somarDias(googleJson.campanhas || [], ['gasto', 'impressoes', 'cliques', 'conversoes']).map(d => ({
+          ...d, ctr: d.impressoes ? d.cliques / d.impressoes * 100 : 0,
+          cpc: d.cliques ? d.gasto / d.cliques : null, cpa: d.conversoes ? d.gasto / d.conversoes : null,
+        })) });
+  }
+  leadsDiarios = montarLeads();
+}
+
+function renderBotoesCampanha() {
+  const nomes = [...((metaJson || {}).campanhas || []), ...((googleJson || {}).campanhas || [])].map(c => c.nome);
+  const comDado = new Set(nomes.map(grupoDe));
+  const grupos = [{ id: 'todas', nome: 'Todas' }, ...CONFIG.gruposCampanha.filter(g => comDado.has(g.id)).sort((a, b) => a.id === 'sales' ? -1 : b.id === 'sales' ? 1 : 0)];
+  if (!grupos.some(g => g.id === campanhaAtiva)) campanhaAtiva = 'todas';
+  document.getElementById('campBotoes').innerHTML = grupos.map(g =>
+    `<button class="btn-camp${g.id === campanhaAtiva ? ' active' : ''}" onclick="escolherCampanha('${g.id}')">${escHtml(g.nome)}</button>`).join('');
+  document.getElementById('subtitleFull').textContent = `${nomeGrupo(campanhaAtiva)} · Meta Ads · Google Ads`;
+}
+
+function escolherCampanha(id) {
+  campanhaAtiva = id;
+  const u = new URL(location.href);   // o link copiado já abre na campanha escolhida
+  if (id === 'todas') u.searchParams.delete('campanha'); else u.searchParams.set('campanha', id);
+  history.replaceState(null, '', u);
+  aplicarCampanha();
+  renderBotoesCampanha();
+  renderInsight();
+  reaplicarFiltroAtivo();
+}
+
+/* ═══════════════════════════════════════
    FILTRO
 ═══════════════════════════════════════ */
 function filterData(fromIso, toIso) {
@@ -990,10 +1067,10 @@ async function carregarDados() {
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
   await Promise.allSettled([
     baixar(META_JSON_URL)
-      .then(json => { metaDiario = montarDias(json); metaUpdated = json.updated || ''; fonteMetaOk = true; })
+      .then(json => { metaJson = json; metaUpdated = json.updated || ''; fonteMetaOk = true; })
       .catch(e => { console.warn('Meta Ads: não carregou:', e.message); fonteMetaOk = false; }),
     baixar(GOOGLE_JSON_URL)
-      .then(json => { googleDiario = montarDias(json); googleUpdated = json.updated || ''; fonteGoogleOk = true; })
+      .then(json => { googleJson = json; googleUpdated = json.updated || ''; fonteGoogleOk = true; })
       .catch(e => { console.warn('Google Ads: não carregou:', e.message); fonteGoogleOk = false; }),
     baixar(CRIATIVOS_JSON_URL)
       .then(json => { criativos = json.ads || []; })
@@ -1002,13 +1079,13 @@ async function carregarDados() {
       .then(json => { gCriativos = { itens: json.itens || [], comNumeros: !!json.comNumeros }; })
       .catch(e => { console.warn('Criativos Google: não carregou:', e.message); }),
   ]);
-  leadsDiarios = montarLeads();
+  aplicarCampanha();
+  renderBotoesCampanha();
   document.getElementById('updateNoteQuando').textContent = metaUpdated ? ` · última atualização: ${metaUpdated}` : '';
   document.getElementById('loadingBadge').style.display = 'none';
 }
 
 async function initDashboard() {
-  document.getElementById('subtitleFull').textContent = `${CONFIG.campanha} · Meta Ads · Google Ads`;
   await carregarDados();
   initCharts();
   renderInsight();
